@@ -129,7 +129,4 @@ roleRef:
 │
 ├─ teleport/                  # Teleport Root 설정
 │   └─ teleport.yaml
-│
-└─ docs/
-    └─ overview.md            # 전체 프로젝트 개요 (별도 문서)
 ```
