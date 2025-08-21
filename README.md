@@ -1,157 +1,145 @@
-# 🔐 Root Cluster (Teleport Bastion)
+# Root Cluster (Teleport Proxy/Auth)
 
-이 저장소는 **망분리 Kubernetes 환경**에서 **외부 접속의 단일 진입점** 역할을 수행하는  **Teleport Root Cluster (Bastion)** 구성 코드를 제공합니다.  
+## 1. 개요
+Root Cluster는 **망분리 환경의 보안 게이트웨이** 역할을 수행합니다.  
+외부 사용자가 내부 Kubernetes(Leaf Cluster)에 접근할 수 있는 **유일한 진입점(Bastion)**이며, 다음 기능을 담당합니다:
 
-Root Cluster는 **Proxy/Auth/Audit 서비스**를 포함하며,  Leaf Cluster와 **mTLS Reverse Tunnel**로 안전하게 연결됩니다.  
-
----
-
-## 📑 개요
-- 중앙 집중형 보안 접속 관리 체계의 핵심 진입점  
-- RBAC 이중 통제( Teleport ↔ Kubernetes )를 위한 Role 정의  
-- 모든 사용자 세션/명령어 실행 로그를 수집하여 **Logstash + OpenSearch**로 연계  
-- API Server 직접 노출 차단, Zero-Trust 기반 접근 제어  
+- **Teleport Proxy**: 사용자의 K8s/SSH 요청을 수신하고 Leaf Cluster로 안전하게 중계  
+- **Teleport Auth**: 사용자 인증·인가 및 RBAC(Role-Based Access Control) 검증  
+- **Audit Logging**: 모든 접속·명령·세션 이벤트를 중앙에서 기록 및 전송(Logstash → OpenSearch)  
 
 ---
 
-## 🌐 전체 아키텍처에서의 Root Cluster 역할
-
-Root Cluster는 단순한 게이트웨이가 아니라, **망분리 환경 전체의 보안·관제 허브**입니다.  
-모든 사용자의 접근은 반드시 Root를 통과해야 하며, Root는 다음과 같은 기능을 전담합니다:
-
-1. **Bastion 역할**  
-   - 외부에서 접속 가능한 **유일한 진입점**  
-   - API Server는 직접 노출되지 않음 (Leaf는 사설망에 존재)  
-
-2. **중앙 인증·인가**  
-   - 모든 사용자 세션은 Root Auth 서비스에서 검증  
-   - Teleport Role ↔ Kubernetes RBAC을 매핑하여 **이중 권한 검증** 수행  
-
-3. **감사 및 로깅 허브**  
-   - 모든 세션/명령 로그를 Audit 서비스가 수집  
-   - Logstash → OpenSearch로 전달되어 **중앙 집중형 모니터링** 구축  
-
-4. **보안 통제 지점**  
-   - 불필요한 인바운드 포트 차단 (443, 3024~3026만 개방)  
-   - mTLS 기반 터널로 Leaf와 안전하게 연결  
-   - 내부자 위협·권한 남용 차단을 위한 RBAC 및 로그 기반 탐지 수행  
-
-> **즉, Root Cluster = “모든 접속이 시작되고, 모든 보안 통제가 이루어지며,  
-> 모든 감사 로그가 집계되는 보안 핵심 지점”**입니다.
+## 2. 네트워크 구조
+- 외부에서 노출되는 포트는 최소화 (보안 그룹 설정 기준)
+  - `443`: Teleport Proxy (Web/UI, K8s Proxy)  
+  - `3024`: Reverse Tunnel (Root ↔ Leaf 연결)  
+  - `3025`: Auth Service  
+  - `3026`: Kubernetes Proxy  
+- `3022`, `3023`: Teleport 내부 노드 간 통신에 사용됨 (Root 내부 전용)  
 
 ---
 
-## 🏗 아키텍처 (Root 관점)
+## 3. 설치 절차
 
-```
-[User] → tsh login → Root Proxy ↔ Auth
-                         ↓ mTLS Tunnel
-                      Leaf Kube Agent → K8s API
-```
-
-- **Proxy**: 외부 사용자가 접속하는 유일 진입점 (443, 3024–3026)  
-- **Auth**: 사용자 인증·인가, RBAC 정책 적용, 세션 관리  
-- **Audit**: 모든 접속/명령 로그 기록 → Logstash → OpenSearch  
-
-> Root Cluster는 외부망에 위치하며 Bastion 역할을 수행합니다.  
-> Leaf Cluster(K3s)는 사설망에 배치되어 Root와의 mTLS 연결로만 접근 가능합니다.
-
----
-
-## ⚙️ 요구사항
-- **OS**: Ubuntu 24.04 LTS (AWS EC2 t3.large 이상 권장)  
-- **Teleport**: v17.5.6 (Open Source Edition)  
-- **Ports**: 443, 3024, 3025, 3026 (보안 그룹 허용)  
-- **CLI 툴**: `tsh`, `tctl`, `kubectl`  
-- **네트워크**: 방화벽으로 불필요한 인바운드 차단 → Root만 외부 노출  
-
----
-
-## 🚀 설치 및 실행
-
-### 1. Teleport 설치
+### (1) Teleport 설치
 ```bash
-./scripts/install-teleport.sh
+# Ubuntu 24.04 기준
+curl https://deb.releases.teleport.dev/teleport-pubkey.gpg | sudo apt-key add -
+echo "deb https://deb.releases.teleport.dev/ stable main" | sudo tee /etc/apt/sources.list.d/teleport.list
+sudo apt-get update && sudo apt-get install teleport
 ```
 
-### 2. 설정 배포
-```bash
-sudo cp teleport/teleport.yaml /etc/teleport.yaml
-sudo systemctl enable --now teleport
-```
+### (2) Teleport 설정 파일 작성
+</br>
+/etc/teleport.yaml - 실제 운영 값으로 작성
+</br>
 
-### 3. 사용자 추가
-```bash
-tctl users add dev1 --roles=dev
-```
+### (3) 서비스 기동/확인
+    sudo systemctl enable teleport
+    sudo systemctl start teleport
+    sudo systemctl status teleport
 
----
+    # 상태 및 포트 확인
+    sudo tctl status
+    sudo ss -tunlp | grep -E ':(443|3024|3025|3026)\b'
 
-## 📝 주요 설정 파일
-- `teleport/teleport.yaml`  
-  - Proxy/Auth/Audit 서비스 설정 포함  
-- `role/*.yaml`  
-  - Root Cluster Teleport Role 정의 (예: app, db, dmz, mgmt)  
+## (4) Leaf 등록(요약) — Root에서 토큰 발급, Leaf에서 Helm 설치
 
-## 🛡 RBAC 이중 연동
-- Teleport Role → `kubernetes_groups` 매핑  
-- Kubernetes RoleBinding → 네임스페이스 단위 최소 권한 제어  
+### 4.1 Root에서 Kube용 토큰 발급
+    sudo tctl tokens add --type=kube --ttl=1h
+    # 출력된 토큰값: <YOUR_TOKEN>
 
-예시:
+### 4.2 Leaf(리프 클러스터)에서 공식 Helm 차트로 Agent 배포
+    helm repo add teleport https://charts.releases.teleport.dev
+    helm repo update
+    # 예시: v17.5.6 사용
+    helm install teleport-agent teleport/teleport-kube-agent \
+      --version 17.5.6 \
+      --namespace teleport --create-namespace \
+      --set proxyAddr=rootcluster.store:443 \
+      --set authToken=<YOUR_TOKEN> \
+      --set kubeClusterName=<YOUR_K8S_CLUSTER> \
+      --set roles="kube,app,discovery"
+
+
+## (5) RBAC 연동 (Teleport ↔ Kubernetes)
+
+### 5.1 Teleport Role (예: app-role) — Root에 생성
 ```yaml
-# Teleport Role (role/app-role.yaml)
-allow:
-  kubernetes_groups: ["app-group"]
+    kind: role
+    version: v7
+    metadata:
+      name: app-role
+    spec:
+      allow:
+        kubernetes_groups:
+          - app-group          # K8s RBAC에서 참조할 그룹명
+        kubernetes_labels:
+          '*': '*'
+        kubernetes_resources:
+          - kind: '*'
+            namespace: app
+            name: '*'
+            verbs: ['*']
+      deny: {}
 ```
+적용:
+    tctl create -f app-role.yaml
+    # 사용자/팀에 app-role 부여 (UI 또는 tctl users update)
+
+### 5.2 Kubernetes Role/RoleBinding (Leaf에 적용)
+`app` 네임스페이스에 읽기 전용 Role과 Binding 예시:
 
 ```yaml
-# Kubernetes RoleBinding
+kind: role
+version: v7
+metadata:
+  name: app-role
+spec:
+  allow:
+    kubernetes_labels:
+      '*' : '*'
+    kubernetes_resources:
+      - kind: "*"
+        namespace: "app"
+        name: "*"
+        verbs: ["*"]
+    kubernetes_groups:
+      - app-group
+  deny: {}
+```
+
+```yaml
+# rolebinding-app.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bind-app-group
+  namespace: app
 subjects:
 - kind: Group
-  name: app-group
+  name: app-group           # ← teleport role에서 내려오는 kubernetes_groups
+  apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: Role
-  name: ns-app-readonly
-```
-
----
-
-## 📊 감사 로그 & 모니터링
-- **Root Audit Logs** → Logstash → OpenSearch → Dashboards  
-- 사용자/리소스별 접근 이력 실시간 시각화  
-- 비인가 접근, 권한 남용, 비정상 로그인 탐지  
-- 감사 로그를 로컬 + 중앙 저장소(OpenSearch)에 이중 보관하여 무결성 보장
-
----
-
-## 🌟 Root Cluster의 기대 효과
-- **보안성 강화**: Root Proxy 단일 노출, API Server 비공개, Pod 단위 RBAC  
-- **운영 효율성**: 중앙 집중 인증·인가, 단일 Bastion 관리  
-- **규제 대응**: 금융위/금보원 가이드라인 충족(행위 기록·추적, 중앙 감사)  
-- **확장성**: 멀티 클러스터/하이브리드 환경 지원  
-
----
-
-## 📂 디렉토리 구조
+  name: app-reader
+  apiGroup: rbac.authorization.k8s.io
 
 ```
-.
-├─ .idea/                     # 개발 환경 설정
-│   ├─ .gitignore
-│   ├─ misc.xml
-│   ├─ modules.xml
-│   ├─ public-cluster.iml
-│   └─ vcs.xml
-│
-├─ role/                      # Teleport Role 정의
-│   ├─ app-role.yaml
-│   ├─ db-exec-role.yaml
-│   ├─ db-role.yaml
-│   ├─ dmz-role.yaml
-│   └─ mgmt-role.yaml
-│
-├─ teleport/                  # Root Cluster 설정
-│   └─ teleport.yaml
-│
-└─ README.md
-```
+
+## 6) 접속/검증
+
+### 6.1 로그인 & K8s 자격증명 수령
+    tsh login --proxy=<YOUR_ROOT_HOST:443> --auth=local --user=<USER> <YOUR_ROOT_CLUSTER>
+    tsh kube login <YOUR_LEAF_CLUSTER>
+
+### 6.2 권한 테스트 (허용/차단 사례)
+    # 허용: app NS 조회 (app-role 부여 사용자)
+    kubectl -n app get pods
+
+    # 차단: db NS 조회 시 Forbidden 기대
+    kubectl -n db get pods
+    # → Error from server (Forbidden) ...
+
+   
