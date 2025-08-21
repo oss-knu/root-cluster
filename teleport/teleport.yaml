@@ -1,0 +1,35 @@
+teleport:
+  nodename: rootcluster.store
+  log:
+    output: /home/ubuntu/logs/teleport.log
+    severity: INFO
+    format:
+      output: json
+
+auth_service:
+  enabled: yes
+  cluster_name: root-cluster-test  # 고유하게 설정
+  listen_addr: 0.0.0.0:3025
+
+proxy_service:
+  enabled: yes
+  public_addr: rootcluster.store:443
+  tunnel_public_addr: rootcluster.store:3024
+  tunnel_listen_addr: 0.0.0.0:3024
+  web_listen_addr: 0.0.0.0:443
+  https_keypairs:
+    - key_file: /etc/letsencrypt/live/rootcluster.store/privkey.pem
+      cert_file: /etc/letsencrypt/live/rootcluster.store/fullchain.pem
+
+  kubernetes:
+    enabled: yes
+    listen_addr: 0.0.0.0:3026
+    public_addr: rootcluster.store:3026
+
+kubernetes_service:
+  enabled: yes
+  listen_addr: 0.0.0.0:3027
+  kubeconfig_file: /home/ubuntu/.kube/config
+
+ssh_service:
+  enabled: no
