@@ -67,6 +67,26 @@ Root Cluster는 단순한 게이트웨이가 아니라, **망분리 환경 전�
 
 ---
 
+## 🚀 설치 및 실행
+
+### 1. Teleport 설치
+```bash
+./scripts/install-teleport.sh
+```
+
+### 2. 설정 배포
+```bash
+sudo cp teleport/teleport.yaml /etc/teleport.yaml
+sudo systemctl enable --now teleport
+```
+
+### 3. 사용자 추가
+```bash
+tctl users add dev1 --roles=dev
+```
+
+---
+
 ## 📝 주요 설정 파일
 - `teleport/teleport.yaml`  
   - Proxy/Auth/Audit 서비스 설정 포함  
