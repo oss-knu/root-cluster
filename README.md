@@ -1,10 +1,8 @@
 # 🔐 Root Cluster (Teleport Bastion)
 
-이 저장소는 **Teleport 기반 망분리 Kubernetes 환경** 중  
-**Root Cluster (Bastion)** 구성 코드를 제공합니다.  
+이 저장소는 **Teleport 기반 망분리 Kubernetes 환경** 중  **Root Cluster (Bastion)** 구성 코드를 제공합니다.  
 
-Root Cluster는 외부 접속의 **단일 진입점**으로서 Proxy/Auth/Audit 서비스를 제공하며,  
-Leaf Cluster와 **mTLS Reverse Tunnel**로 안전하게 연결됩니다.  
+Root Cluster는 외부 접속의 **단일 진입점**으로서 Proxy/Auth/Audit 서비스를 제공하며,  Leaf Cluster와 **mTLS Reverse Tunnel**로 연결됩니다.  
 
 ---
 
@@ -12,8 +10,6 @@ Leaf Cluster와 **mTLS Reverse Tunnel**로 안전하게 연결됩니다.
 - 중앙 집중형 보안 접속 관리 체계 (Root → Leaf)
 - RBAC 이중 통제 (Teleport ↔ Kubernetes)
 - 실시간 감사/모니터링 (Logstash + OpenSearch)
-
-👉 전체 프로젝트 개요는 [`docs/overview.md`](docs/overview.md)를 참고하세요.
 
 ---
 
@@ -110,20 +106,6 @@ roleRef:
   kind: Role
   name: ns-app-readonly
 ```
-
----
-
-## 📊 감사 로그 & 모니터링
-- Teleport Audit Logs → Logstash → OpenSearch → Dashboards  
-- 사용자·리소스별 접근 시도 실시간 시각화  
-- 비인가 접근 탐지 및 알림 가능  
-
----
-
-## ✅ 보안 베스트 프랙티스
-- Root Proxy만 외부 노출 (API Server 직접 노출 금지)  
-- 불필요한 인바운드 차단  
-- 최소 권한 RBAC 적용  
 
 ---
 
